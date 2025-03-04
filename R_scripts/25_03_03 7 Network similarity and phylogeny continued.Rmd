@@ -1,0 +1,188 @@
+---
+title: "25_03_03 7 Network similarity and phylogeny continued"
+output: html_notebook
+---
+
+```{r libraries, include = FALSE}
+library(picante)
+library(tidyr)
+library(dplyr)
+library(ape)
+library(bipartite)
+library(stringr)
+library(ggplot2)
+
+wordcount <- function(string) {
+  sapply(gregexpr("[[:alpha:]]+", string), function(x) sum(x > 0))
+}
+```
+
+```{r import data, include = FALSE}
+tree <- read.tree("../data/Daphne/DaPhnE_01.tre")
+symbionts <- read.csv("../data/all_symbionts.csv")
+```
+
+```{r convert to same format as Daphne tree, include=FALSE}
+symbionts$host_name <- word(symbionts$host_name, 1,2, sep=" ") # get only first two words to remove species authority etc
+symbionts$host_name <- sub(" ", "_", symbionts$host_name)
+```
+
+```{r filter out genera and other junk data, include = FALSE}
+symbionts <- symbionts[!wordcount(symbionts$host_name) == 1,]
+
+symbionts <- symbionts %>%
+  filter(!str_detect(host_name, "spp.")) %>%
+  filter(!str_detect(host_name, "other ")) %>%
+  filter(!str_detect(host_name, "Other ")) %>%
+  filter(!str_detect(host_name, " x ")) %>%
+  filter(!str_detect(host_name, "X ")) %>%
+  filter(!str_detect(host_name, "animal")) %>%
+  filter(!str_detect(host_name, "cultivated")) %>%
+  filter(!str_detect(host_name, "plants")) %>%
+  filter(!str_detect(host_name, "trees")) %>%
+  filter(!str_detect(host_name, "Leaf-litter")) %>%
+  filter(!str_detect(host_name, "species")) %>%
+  filter(!str_detect(host_name, "Species")) %>%
+  filter(!str_detect(host_name, "stored")) %>%
+  filter(!str_detect(host_name, "Stored")) %>%
+  filter(!str_detect(host_name, " check"))
+
+length(unique(symbionts$host_name))
+length(unique(symbionts$symbiont_name))
+
+symbionts$group <- 1 # create a group that includes everything
+```
+
+```{r remove taxa not in tree, include=FALSE}
+symbionts <- symbionts[symbionts$host_name %in% tree$tip.label,]
+```
+
+
+There are `r length(unique(symbionts$host_name))` hosts and `r length(unique(symbionts$symbiont_name))` symbionts in the network.
+
+```{r function calculating niche overlap of two hosts, include = FALSE}
+niche_overlap <- function(hostid1, hostid2) {
+  if(hostid1 == hostid2){
+    return(1)
+  }
+
+  else{
+    sample_interactions <- symbionts[symbionts$hostid == hostid1 | symbionts$hostid == hostid2,]
+    interaction_matrix <- frame2webs(sample_interactions, varnames = c('host_name', 'symbiont_name', 'group', 'group'), emptylist = FALSE, type.out="array")
+    interaction_matrix <- data.frame(interaction_matrix)
+    return(networklevel(interaction_matrix, index = "niche overlap", level = "lower"))
+  }
+}
+```
+
+```{r calculate phylogenetic distance, include=FALSE}
+# subset tree to our hosts -----------------------------------------------------
+
+subset_tree <- keep.tip(tree, taxa[taxa %in% symbionts$host_name])
+length(subset_tree$tip.label) / length(tree$tip.label)
+# 0.3383444
+
+phylo_distance_matrix <- cophenetic(subset_tree)
+phylo_distance_matrix <- data.frame(phylo_distance_matrix)
+phylo_distance_matrix$host_name <- rownames(phylo_distance_matrix)
+
+```
+
+```{r phylogenetic distance function, include=FALSE}
+phylodistance <- function(hostid1, hostid2){
+  if(!hostid1 %in% symbionts$hostid){
+    return(NA)
+  }
+  else if(!hostid2 %in% symbionts$hostid){
+    return(NA)
+  }
+  else if(!symbionts[symbionts$hostid == hostid1,]$host_name[1] %in% rownames(phylo_distance_matrix)){
+    return(NA)
+  }
+  else if(!symbionts[symbionts$hostid == hostid2,]$host_name[1] %in% rownames(phylo_distance_matrix)){
+    return(NA)
+  }
+  else if(!symbionts[symbionts$hostid == hostid1,]$host_name[1] %in% colnames(phylo_distance_matrix)){
+    return(NA)
+  }
+  else if(!symbionts[symbionts$hostid == hostid2,]$host_name[1] %in% colnames(phylo_distance_matrix)){
+    return(NA)
+  }
+  else if(hostid1 == hostid2){
+    return(NA)
+  }
+  
+  
+  else{
+    # convert hostids to taxon names -------------------------------------------
+    taxonname1 <- symbionts[symbionts$hostid == hostid1,]$host_name[1]
+    taxonname2 <- symbionts[symbionts$hostid == hostid2,]$host_name[1]
+    
+    # find and return phylodistance in matrix ----------------------------------
+    return(phylo_distance_matrix[taxonname1, taxonname2])
+  }
+}
+
+```
+
+
+```{r create niche overlap matrix of hosts, include=FALSE}
+# list of valid hostids --------------------------------------------------------
+hostids <- unique(symbionts$hostid)
+
+# randomly select N hosts ------------------------------------------------------
+N <- 200
+host_sample <- sample(hostids, N)
+# host_sample <- hostids
+# print(host_sample)
+# host_sample %in% symbionts$hostid
+
+# Alternative: use set sample where at least some have niche overlaps ----------
+# host_sample <- c(4609, 4623, 4609, 4624, 4794, 4797, 4814, 4815, 4814, 4797)
+
+# create dataframe -------------------------------------------------------------
+overlap_data <- data.frame(hostid1 = c(NA), hostid2 = c(NA), niche_overlap = c(NA), phylodistance = c(NA), counter = 1:length(host_sample)**2)
+
+counter <- 1
+
+for(i in 1:length(host_sample)){
+  hostid1 <- host_sample[i]
+  
+  for(j in 1:length(host_sample)){
+    hostid2 <- host_sample[j]
+    
+    overlap_data$hostid1[counter] <- hostid1
+    overlap_data$hostid2[counter] <- hostid2
+    overlap_data$niche_overlap[counter] <- niche_overlap(hostid1, hostid2)
+    overlap_data$phylodistance[counter] <- phylodistance(hostid1, hostid2)
+    
+    counter <- counter + 1
+    if(counter %% 100 == 0)
+      print(counter)
+  }
+}
+
+```
+
+```{r plot data}
+plot <- ggplot(overlap_data, aes(phylodistance, niche_overlap)) +
+  geom_point() #+
+  # geom_hex(bins = 70) +
+  # scale_fill_continuous(type = "viridis") +
+  # theme_bw()
+
+# print figure -----------------------------------------------------------------
+png('../figures/25_03_03_niche_overlap_vs_phylo_distance.png', height=2500, width=3000, res=600, bg='white')
+plot
+dev.off()
+
+plot
+```
+
+```{r modelling}
+library(glmmTMB)
+
+mdl <- glmmTMB(niche_overlap ~ phylodistance, overlap_data, family = binomial(link = "logit"))
+summary(mdl, dispersion = 1)
+```
+

@@ -1,0 +1,85 @@
+---
+title: "25_03_02 6 Network similarity and phylogeny"
+output: html_notebook
+---
+
+```{r libraries, include = FALSE}
+library(picante)
+library(tidyr)
+library(dplyr)
+library(ape)
+library(bipartite)
+library(stringr)
+
+wordcount <- function(string) {
+  sapply(gregexpr("[[:alpha:]]+", string), function(x) sum(x > 0))
+}
+```
+
+```{r import data, include = FALSE}
+tree <- read.tree("../data/Daphne/DaPhnE_01.tre")
+symbionts <- read.csv("../data/all_symbionts.csv")
+```
+
+```{r filter out genera and other junk data, include = FALSE}
+symbionts <- symbionts[!wordcount(symbionts$host_name) == 1,]
+
+symbionts <- symbionts %>%
+  filter(!str_detect(host_name, "spp.")) %>%
+  filter(!str_detect(host_name, "other ")) %>%
+  filter(!str_detect(host_name, "Other ")) %>%
+  filter(!str_detect(host_name, " x ")) %>%
+  filter(!str_detect(host_name, "X ")) %>%
+  filter(!str_detect(host_name, "animal")) %>%
+  filter(!str_detect(host_name, "cultivated")) %>%
+  filter(!str_detect(host_name, "plants")) %>%
+  filter(!str_detect(host_name, "trees")) %>%
+  filter(!str_detect(host_name, "Leaf-litter")) %>%
+  filter(!str_detect(host_name, "species")) %>%
+  filter(!str_detect(host_name, "Species")) %>%
+  filter(!str_detect(host_name, "stored")) %>%
+  filter(!str_detect(host_name, "Stored")) %>%
+  filter(!str_detect(host_name, " check"))
+
+length(unique(symbionts$host_name))
+length(unique(symbionts$symbiont_name))
+```
+
+There are `r length(unique(symbionts$host_name))` hosts and `r length(unique(symbionts$symbiont_name))` symbionts in the network.
+
+```{r create matrix for two host species, include = FALSE}
+hostid1 = 4609 # Ranunculus acris
+hostid2 = 4623 # Ranunculus repens
+
+symbionts$group <- 1 # create a group that includes everything
+
+sample_interactions <- symbionts[symbionts$hostid == hostid1 | symbionts$hostid == hostid2,]
+interaction_matrix <- frame2webs(sample_interactions, varnames = c('host_name', 'symbiont_name', 'group', 'group'), emptylist = FALSE, type.out="array")
+interaction_matrix <- data.frame(interaction_matrix)
+```
+
+```{r calculate niche overlap, include = FALSE}
+networklevel(interaction_matrix, index = "niche overlap", level = "lower")
+```
+
+```{r function calculating niche overlap of two hosts, include = FALSE}
+niche_overlap <- function(hostid1, hostid2) {
+  sample_interactions <- symbionts[symbionts$hostid == hostid1 | symbionts$hostid == hostid2,]
+  interaction_matrix <- frame2webs(sample_interactions, varnames = c('host_name', 'symbiont_name', 'group', 'group'), emptylist = FALSE, type.out="array")
+  interaction_matrix <- data.frame(interaction_matrix)
+  return(networklevel(interaction_matrix, index = "niche overlap", level = "lower"))
+}
+```
+
+```{r test niche overlap function, include = FALSE}
+niche_overlap(4609, 4623)
+niche_overlap(4609, 4624)
+niche_overlap(4794, 4797)
+niche_overlap(4814, 4815)
+niche_overlap(4814, 4797)
+```
+
+
+
+
+
